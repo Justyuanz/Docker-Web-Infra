@@ -1,0 +1,3 @@
+[ ] Explain FROM in your own words
+[ ] Explain RUN in your own words
+[ ] Explain image vs container in your own words

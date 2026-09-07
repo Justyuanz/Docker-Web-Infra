@@ -1,0 +1,1499 @@
+INCEPTION — DAY 2: MARIADB
+Date: Tuesday, 8 September 2026
+Study time: about 5 hours
+Environment: laptop
+
+GOAL FOR TODAY
+==============
+
+Today is about turning MariaDB from:
+
+    "an image that contains MariaDB"
+
+into:
+
+    "a real MariaDB Docker service"
+
+The goal is:
+
+1. Make mariadbd run as the real main process of the container.
+2. Understand why the container stays alive only while MariaDB stays alive.
+3. Manually create the WordPress database.
+4. Manually create the WordPress database user.
+5. Give the WordPress user the correct permissions.
+6. Understand database root vs application user credentials.
+7. Learn where MariaDB stores its real data.
+8. Create a named Docker volume.
+9. Prove database data survives deleting and recreating a container.
+10. Only after understanding all that, create an initialization script.
+11. Make initialization happen only on first startup.
+12. Make the script finish with the real MariaDB process.
+
+Do NOT start WordPress today.
+Do NOT start NGINX today.
+Do NOT create the final full Inception skeleton today.
+Do NOT hide problems with tail -f, sleep infinity, or background processes.
+
+Today's principle:
+
+    make it work manually
+           ↓
+    understand WHY
+           ↓
+    automate only what you understand
+
+
+============================================================
+PART 1 — START FROM YESTERDAY'S DOCKERFILE
+============================================================
+
+Your current structure should be approximately:
+
+    inception/
+    └── mariadb/
+        └── Dockerfile
+
+Your Dockerfile should currently look roughly like:
+
+    FROM debian:bookworm
+
+    RUN apt-get update && \
+        apt-get install -y mariadb-server
+
+You already know:
+
+    mariadb-server
+        = Debian package
+
+    mariadb
+        = command-line CLIENT
+
+    mariadbd
+        = actual database SERVER
+
+
+============================================================
+PART 2 — TRY TO RUN THE REAL MARIADB SERVER MANUALLY
+============================================================
+
+First rebuild if needed:
+
+    docker build -t mariadb .
+
+Enter a temporary container:
+
+    docker run --rm -it mariadb bash
+
+Inside the container:
+
+    which mariadbd
+
+Then:
+
+    mariadbd --version
+
+Now try:
+
+    mariadbd --user=mysql
+
+WHAT DOES THIS MEAN?
+--------------------
+
+    mariadbd
+
+means:
+
+    Start the actual MariaDB database server.
+
+    --user=mysql
+
+means:
+
+    Run the MariaDB server as the Linux user called "mysql"
+    instead of as root.
+
+MariaDB should normally run as its dedicated mysql user.
+
+You may get an error about:
+
+    /run/mysqld/
+
+That is useful.
+
+It means MariaDB needs a runtime directory before it can start properly.
+
+Exit:
+
+    exit
+
+
+============================================================
+PART 3 — CREATE THE MARIADB RUNTIME DIRECTORY
+============================================================
+
+Update Dockerfile:
+
+    FROM debian:bookworm
+
+    RUN apt-get update && \
+        apt-get install -y mariadb-server && \
+        mkdir -p /run/mysqld && \
+        chown mysql:mysql /run/mysqld
+
+WHAT DOES THIS DO?
+------------------
+
+    mkdir -p /run/mysqld
+
+creates:
+
+    /run/mysqld/
+
+MariaDB can use this directory for runtime files such as its socket.
+
+Then:
+
+    chown mysql:mysql /run/mysqld
+
+means:
+
+    owner = mysql
+    group = mysql
+
+MariaDB runs as mysql, so it needs permission to use that directory.
+
+Rebuild:
+
+    docker build -t mariadb .
+
+
+============================================================
+PART 4 — LEARN CMD
+============================================================
+
+Yesterday you learned:
+
+    RUN
+
+Today you need:
+
+    CMD
+
+The difference:
+
+    RUN
+        ↓
+    runs during docker build
+        ↓
+    changes the IMAGE
+
+    CMD
+        ↓
+    runs by default during docker run
+        ↓
+    becomes the default CONTAINER process
+
+Add this to Dockerfile:
+
+    CMD ["mariadbd", "--user=mysql"]
+
+Now your Dockerfile should look approximately like:
+
+    FROM debian:bookworm
+
+    RUN apt-get update && \
+        apt-get install -y mariadb-server && \
+        mkdir -p /run/mysqld && \
+        chown mysql:mysql /run/mysqld
+
+    CMD ["mariadbd", "--user=mysql"]
+
+Rebuild:
+
+    docker build -t mariadb .
+
+
+============================================================
+PART 5 — RUN MARIADB AS THE REAL CONTAINER PROCESS
+============================================================
+
+Now run:
+
+    docker run --name mariadb-test -d mariadb
+
+Breakdown:
+
+    docker run
+        Create and start a container.
+
+    --name mariadb-test
+        Give this container a readable name.
+
+    -d
+        Detached mode.
+        Your terminal gets control back.
+
+    mariadb
+        Use the image named mariadb.
+
+IMPORTANT:
+
+    -d
+
+does NOT mean MariaDB itself is running as a forbidden background process.
+
+The host terminal is detached, but INSIDE the container:
+
+    mariadbd
+
+should still be the real foreground/main process.
+
+Check:
+
+    docker ps
+
+You want to see:
+
+    mariadb-test    ...    Up ...
+
+Now inspect logs:
+
+    docker logs mariadb-test
+
+
+============================================================
+PART 6 — PROVE MARIADBD IS THE REAL MAIN PROCESS
+============================================================
+
+Run:
+
+    docker top mariadb-test
+
+You should see mariadbd.
+
+Then:
+
+    docker exec mariadb-test cat /proc/1/comm
+
+Ideally the result is:
+
+    mariadbd
+
+WHY IS PID 1 IMPORTANT?
+-----------------------
+
+Inside a container:
+
+    PID 1
+
+is the main process.
+
+Correct:
+
+    Container
+    └── mariadbd
+          ↑
+         PID 1
+
+Then:
+
+    MariaDB alive
+        ↓
+    container alive
+
+    MariaDB dies
+        ↓
+    PID 1 dies
+        ↓
+    container stops
+
+This is GOOD.
+
+The lifetime of the container represents the lifetime of the service.
+
+
+============================================================
+PART 7 — WHY FAKE KEEP-ALIVES ARE WRONG
+============================================================
+
+BAD:
+
+    mariadbd &
+    tail -f /dev/null
+
+Why?
+
+    Container
+    ├── mariadbd
+    │      ↓
+    │   could crash
+    │
+    └── tail -f /dev/null
+           ↓
+        stays alive forever
+
+Docker could say:
+
+    container is running
+
+even though MariaDB is dead.
+
+Also forbidden ideas include:
+
+    sleep infinity
+    tail -f /dev/null
+    infinite loops
+    service & bash
+
+For Inception, the REAL service must keep the container alive.
+
+Correct:
+
+    Container
+    └── mariadbd
+          ↑
+      real foreground process
+
+
+You can now understand these checklist items:
+
+    [x] Make the real MariaDB server run in the foreground
+    [x] Verify the container stays alive because MariaDB is running
+    [x] No fake keep-alive
+    [x] No process started with &
+
+
+============================================================
+PART 8 — ENTER THE RUNNING MARIADB SERVER
+============================================================
+
+Your server is already running.
+
+So do NOT start another mariadbd.
+
+Instead use the CLIENT:
+
+    docker exec -it mariadb-test mariadb
+
+Remember:
+
+    mariadbd
+        = server
+
+    mariadb
+        = client
+
+Now you should see something like:
+
+    MariaDB [(none)]>
+
+Run:
+
+    SHOW DATABASES;
+
+You should see MariaDB system databases.
+
+
+============================================================
+PART 9 — MANUALLY CREATE THE WORDPRESS DATABASE
+============================================================
+
+Inside MariaDB:
+
+    CREATE DATABASE wordpress;
+
+Then:
+
+    SHOW DATABASES;
+
+You should now see:
+
+    wordpress
+
+MENTAL MODEL:
+
+    MariaDB SERVER
+    │
+    ├── system databases
+    └── wordpress
+           ↓
+        later stores:
+        posts
+        comments
+        users
+        settings
+        etc.
+
+
+============================================================
+PART 10 — MANUALLY CREATE THE WORDPRESS DATABASE USER
+============================================================
+
+Do not let WordPress use MariaDB root.
+
+Create a dedicated user:
+
+    CREATE USER 'wpuser'@'%' IDENTIFIED BY 'temporary-learning-password';
+
+For now this password is ONLY for local learning/testing.
+
+Do NOT commit a real password to Git.
+
+Meaning:
+
+    'wpuser'
+        ↓
+    MariaDB username
+
+    '@%'
+        ↓
+    allow this DB user to connect from another host/container
+
+    IDENTIFIED BY ...
+        ↓
+    database password
+
+
+============================================================
+PART 11 — GIVE THE WORDPRESS USER PERMISSIONS
+============================================================
+
+Creating the user is not enough.
+
+Now grant permission:
+
+    GRANT ALL PRIVILEGES ON wordpress.* TO 'wpuser'@'%';
+
+Then:
+
+    FLUSH PRIVILEGES;
+
+Inspect:
+
+    SHOW GRANTS FOR 'wpuser'@'%';
+
+Also:
+
+    SELECT User, Host FROM mysql.user;
+
+MENTAL MODEL:
+
+    MariaDB root
+        ↓
+    database administrator
+
+    wpuser
+        ↓
+    application database user
+        ↓
+    permissions on wordpress.*
+
+
+Exit MariaDB:
+
+    exit;
+
+
+============================================================
+PART 12 — UNDERSTAND ROOT VS APPLICATION USER
+============================================================
+
+There are two completely different "root" ideas:
+
+    Linux root
+        ↓
+    operating-system administrator
+
+    MariaDB root
+        ↓
+    database administrator
+
+WordPress should NOT use the MariaDB root account.
+
+WordPress should eventually use something like:
+
+    MYSQL_DATABASE=wordpress
+    MYSQL_USER=wpuser
+    MYSQL_PASSWORD=...
+
+This follows the principle:
+
+    application
+        ↓
+    gets only the permissions it needs
+
+
+============================================================
+PART 13 — FIND THE REAL MARIADB DATA DIRECTORY
+============================================================
+
+Run:
+
+    docker exec mariadb-test ls /var/lib/mysql
+
+This directory is extremely important:
+
+    /var/lib/mysql
+
+It contains MariaDB's real database data.
+
+Think:
+
+    /etc/mysql
+        ↓
+    configuration
+
+    /var/lib/mysql
+        ↓
+    actual database data
+
+
+You can now check:
+
+    [x] Find MariaDB's data directory
+
+
+============================================================
+PART 14 — PROVE THE CONTAINER FILESYSTEM IS NOT ENOUGH
+============================================================
+
+Right now your WordPress database exists inside:
+
+    mariadb-test
+        ↓
+    /var/lib/mysql
+
+Stop and delete the container:
+
+    docker stop mariadb-test
+    docker rm mariadb-test
+
+Now create a new container:
+
+    docker run --name mariadb-test2 -d mariadb
+
+Enter:
+
+    docker exec -it mariadb-test2 mariadb
+
+Then:
+
+    SHOW DATABASES;
+
+Your manually-created wordpress database may be gone.
+
+WHY?
+----
+
+Because the old database lived inside the old container filesystem.
+
+Mental model:
+
+    Container #1
+    └── /var/lib/mysql
+          └── wordpress
+
+    DELETE CONTAINER #1
+              ↓
+    that container filesystem is gone
+
+This is the problem Docker volumes solve.
+
+Exit:
+
+    exit;
+
+
+============================================================
+PART 15 — CREATE A DOCKER NAMED VOLUME
+============================================================
+
+Remove the second test container:
+
+    docker rm -f mariadb-test2
+
+Create a volume:
+
+    docker volume create mariadb-data
+
+Check:
+
+    docker volume ls
+
+You should see:
+
+    mariadb-data
+
+
+MENTAL MODEL
+------------
+
+    Docker host
+    │
+    └── named volume: mariadb-data
+                ↑
+                │
+                │ mounted into
+                │
+    Container
+    └── /var/lib/mysql
+
+
+Important:
+
+    container can be deleted
+    volume still remains
+
+That is exactly what persistence means here.
+
+
+============================================================
+PART 16 — RUN MARIADB WITH THE VOLUME
+============================================================
+
+Run:
+
+    docker run \
+        --name mariadb-test \
+        -d \
+        -v mariadb-data:/var/lib/mysql \
+        mariadb
+
+Breakdown:
+
+    -v mariadb-data:/var/lib/mysql
+
+means:
+
+    Mount named volume:
+        mariadb-data
+
+    into container path:
+        /var/lib/mysql
+
+
+Now check:
+
+    docker ps
+
+and:
+
+    docker logs mariadb-test
+
+
+============================================================
+PART 17 — WHY FIRST STARTUP INITIALIZATION NOW MATTERS
+============================================================
+
+A fresh named volume can start empty.
+
+But MariaDB needs its data directory initialized.
+
+This means your container startup needs logic like:
+
+    container starts
+          ↓
+    Is /var/lib/mysql already initialized?
+          │
+          ├── NO
+          │     ↓
+          │   initialize MariaDB
+          │     ↓
+          │   create WordPress DB
+          │     ↓
+          │   create WordPress user
+          │
+          └── YES
+                ↓
+             keep existing DB
+          ↓
+    start mariadbd
+
+
+THIS is why we now need a startup script.
+
+We did NOT create one earlier because we had not yet discovered the problem it solves.
+
+
+============================================================
+PART 18 — LEARN MARIADB-INSTALL-DB
+============================================================
+
+MariaDB provides:
+
+    mariadb-install-db
+
+Its job is:
+
+    initialize a new MariaDB data directory
+    and create the required system tables
+
+Inside a temporary container, inspect it:
+
+    docker run --rm -it mariadb bash
+
+Then:
+
+    which mariadb-install-db
+
+and:
+
+    mariadb-install-db --help
+
+Exit:
+
+    exit
+
+
+============================================================
+PART 19 — KEEP BUILD-TIME DATA OUT OF THE IMAGE
+============================================================
+
+When Debian installs MariaDB during docker build,
+some initial database files may exist in:
+
+    /var/lib/mysql
+
+But runtime DB data should not be baked into the image.
+
+So update Dockerfile:
+
+    FROM debian:bookworm
+
+    RUN apt-get update && \
+        apt-get install -y mariadb-server && \
+        rm -rf /var/lib/apt/lists/* && \
+        rm -rf /var/lib/mysql/*
+
+Why:
+
+    install MariaDB program
+            ↓
+    keep software
+
+    remove build-time DB contents
+            ↓
+    runtime DB starts clean
+
+Rebuild:
+
+    docker build -t mariadb .
+
+
+============================================================
+PART 20 — CREATE THE STARTUP SCRIPT
+============================================================
+
+Now create:
+
+    mkdir -p tools
+    touch tools/init.sh
+
+Structure:
+
+    mariadb/
+    ├── Dockerfile
+    └── tools/
+        └── init.sh
+
+Start with:
+
+    #!/bin/sh
+
+    set -eu
+
+Meaning:
+
+    -e
+        ↓
+    if a command fails, stop the script
+
+    -u
+        ↓
+    undefined variable = error
+
+This is useful because a broken DB initialization should fail clearly.
+
+
+============================================================
+PART 21 — PREPARE RUNTIME DIRECTORIES IN THE SCRIPT
+============================================================
+
+Add:
+
+    mkdir -p /run/mysqld
+    chown -R mysql:mysql /run/mysqld /var/lib/mysql
+
+Why do this at runtime too?
+
+Because:
+
+    /var/lib/mysql
+
+may now be a mounted Docker volume.
+
+The volume needs correct ownership for the mysql user.
+
+
+============================================================
+PART 22 — DETECT FIRST STARTUP
+============================================================
+
+Add:
+
+    if [ ! -d "/var/lib/mysql/mysql" ]; then
+        echo "First MariaDB startup"
+    fi
+
+Why check:
+
+    /var/lib/mysql/mysql
+
+?
+
+After MariaDB has been initialized,
+its system database directory exists there.
+
+So:
+
+    directory missing
+        ↓
+    first/fresh startup
+
+    directory exists
+        ↓
+    already initialized
+
+
+============================================================
+PART 23 — UNDERSTAND IDEMPOTENCE
+============================================================
+
+Idempotent means:
+
+    running the startup logic again
+    should not destroy or incorrectly recreate existing data
+
+For this project:
+
+    first start
+        ↓
+    initialize DB
+
+    second start
+        ↓
+    do NOT initialize again
+
+    third start
+        ↓
+    do NOT initialize again
+
+
+Bad startup logic:
+
+    every start
+        ↓
+    delete database
+        ↓
+    recreate database
+
+That would destroy persistence.
+
+
+============================================================
+PART 24 — INITIALIZE THE DATA DIRECTORY
+============================================================
+
+Inside the first-start block, you are working toward:
+
+    mariadb-install-db \
+        --user=mysql \
+        --datadir=/var/lib/mysql
+
+Meaning:
+
+    --user=mysql
+        ↓
+    DB files belong to mysql user
+
+    --datadir=/var/lib/mysql
+        ↓
+    initialize the persistent MariaDB data directory
+
+
+============================================================
+PART 25 — AUTOMATE WORDPRESS DB + USER CREATION
+============================================================
+
+Your future initialization logic needs SQL equivalent to:
+
+    CREATE DATABASE wordpress;
+
+    CREATE USER 'wpuser'@'%' IDENTIFIED BY '...';
+
+    GRANT ALL PRIVILEGES ON wordpress.* TO 'wpuser'@'%';
+
+    FLUSH PRIVILEGES;
+
+But DO NOT hard-code the final credentials.
+
+Eventually values should come from runtime configuration such as:
+
+    MYSQL_DATABASE
+    MYSQL_USER
+    MYSQL_PASSWORD
+
+Mental model:
+
+    .env / Docker secrets
+            ↓
+    Docker Compose
+            ↓
+    environment / secret files inside container
+            ↓
+    init.sh
+            ↓
+    SQL initialization
+
+
+============================================================
+PART 26 — CREDENTIAL SAFETY
+============================================================
+
+Your final project must not commit real credentials.
+
+Never do this in Dockerfile:
+
+    ENV MYSQL_PASSWORD=myrealpassword
+
+Never commit a real password in:
+
+    Dockerfile
+    docker-compose.yml
+    shell script
+    README
+    Git history
+
+For the final project, think:
+
+    .env
+        ↓
+    project/runtime configuration
+
+    Docker secrets
+        ↓
+    confidential passwords
+
+Later your script may read something conceptually like:
+
+    DB_PASSWORD="$(cat /run/secrets/db_password)"
+
+For today's learning,
+temporary local values are okay.
+
+Do not commit them.
+
+
+============================================================
+PART 27 — CREATE .GITIGNORE FOR LOCAL SECRET FILES
+============================================================
+
+At the final repository level you will need to ensure
+confidential/local files are not committed.
+
+Conceptually:
+
+    .gitignore
+
+may contain:
+
+    .env
+    secrets/*.txt
+
+The important rule:
+
+    project configuration structure
+        → Git OK
+
+    real credentials
+        → Git NOT OK
+
+
+============================================================
+PART 28 — FINISH THE ENTRYPOINT WITH EXEC
+============================================================
+
+Your startup script must finally launch the real server.
+
+The important final line is:
+
+    exec mariadbd --user=mysql
+
+Why:
+
+Without exec:
+
+    PID 1
+    └── init.sh
+        └── mariadbd
+
+With:
+
+    exec mariadbd --user=mysql
+
+the shell is replaced by MariaDB:
+
+    PID 1
+    └── mariadbd
+
+
+This is exactly what we want.
+
+
+============================================================
+PART 29 — UNDERSTAND ENTRYPOINT
+============================================================
+
+Today you learned:
+
+    CMD
+
+Now you may use:
+
+    ENTRYPOINT
+
+The startup flow becomes:
+
+    docker run
+        ↓
+    ENTRYPOINT
+        ↓
+    init.sh
+        ↓
+    initialize if needed
+        ↓
+    exec mariadbd
+        ↓
+    MariaDB becomes PID 1
+
+
+============================================================
+PART 30 — COPY THE SCRIPT INTO THE IMAGE
+============================================================
+
+Your Dockerfile will eventually have a shape like:
+
+    FROM debian:bookworm
+
+    RUN apt-get update && \
+        apt-get install -y mariadb-server && \
+        rm -rf /var/lib/apt/lists/* && \
+        rm -rf /var/lib/mysql/*
+
+    COPY tools/init.sh /usr/local/bin/init.sh
+
+    RUN chmod +x /usr/local/bin/init.sh
+
+    ENTRYPOINT ["/usr/local/bin/init.sh"]
+
+Do NOT copy this blindly.
+
+Make sure you understand:
+
+    FROM
+    RUN
+    COPY
+    chmod
+    ENTRYPOINT
+
+
+============================================================
+PART 31 — TEST PERSISTENCE WITH REAL DATA
+============================================================
+
+Create a fresh volume if needed:
+
+    docker volume create mariadb-data
+
+Run your container with:
+
+    mariadb-data:/var/lib/mysql
+
+Once your initialization logic works,
+enter MariaDB:
+
+    docker exec -it mariadb-test mariadb
+
+Use:
+
+    USE wordpress;
+
+Create a tiny test table:
+
+    CREATE TABLE day2_test (
+        id INT PRIMARY KEY,
+        message VARCHAR(100)
+    );
+
+Insert:
+
+    INSERT INTO day2_test
+    VALUES (1, 'MariaDB persistence works');
+
+Check:
+
+    SELECT * FROM day2_test;
+
+You want:
+
+    1 | MariaDB persistence works
+
+
+============================================================
+PART 32 — DELETE THE CONTAINER
+============================================================
+
+Exit:
+
+    exit;
+
+Then:
+
+    docker stop mariadb-test
+    docker rm mariadb-test
+
+Check:
+
+    docker ps -a
+
+The container should be gone.
+
+Now:
+
+    docker volume ls
+
+The volume should still exist:
+
+    mariadb-data
+
+
+MENTAL MODEL:
+
+    container
+        ❌ deleted
+
+    volume
+        ✅ still exists
+
+    DB data
+        ✅ still exists inside volume
+
+
+============================================================
+PART 33 — CREATE A NEW CONTAINER WITH THE SAME VOLUME
+============================================================
+
+Create another MariaDB container from the SAME image
+using the SAME volume.
+
+Mental model:
+
+    New container
+         ↓
+    same mariadb-data
+         ↓
+    /var/lib/mysql already initialized
+         ↓
+    init.sh detects existing data
+         ↓
+    skips first-start initialization
+         ↓
+    exec mariadbd
+
+
+============================================================
+PART 34 — VERIFY DATA SURVIVED
+============================================================
+
+Enter:
+
+    docker exec -it mariadb-test mariadb
+
+Then:
+
+    USE wordpress;
+
+    SELECT * FROM day2_test;
+
+If you still see:
+
+    1 | MariaDB persistence works
+
+you proved:
+
+    container #1
+         ↓
+    writes database data
+         ↓
+    Docker volume
+         ↓
+    container #1 deleted
+         ↓
+    container #2
+         ↓
+    same volume
+         ↓
+    same data
+
+
+That is one of the most important Inception concepts.
+
+
+============================================================
+PART 35 — INSPECT THE WORDPRESS DATABASE USER
+============================================================
+
+Inside MariaDB:
+
+    SELECT User, Host
+    FROM mysql.user;
+
+Then:
+
+    SHOW GRANTS FOR 'wpuser'@'%';
+
+You should be able to explain:
+
+    who wpuser is
+    why WordPress needs its own user
+    what database it can access
+    why WordPress should not use MariaDB root
+
+
+============================================================
+PART 36 — TEST LOGIN AS THE WORDPRESS DATABASE USER
+============================================================
+
+Eventually test:
+
+    docker exec -it mariadb-test \
+        mariadb -h 127.0.0.1 -u wpuser -p wordpress
+
+Enter the temporary/local password when asked.
+
+Then:
+
+    SHOW TABLES;
+
+This proves:
+
+    wpuser
+        ↓
+    can authenticate
+        ↓
+    can access wordpress database
+
+
+============================================================
+DAY 2 CHECKLIST
+============================================================
+
+1. MAKE MARIADB RUN CORRECTLY
+
+[ ] Run mariadbd manually
+[ ] Understand why /run/mysqld is needed
+[ ] Create /run/mysqld
+[ ] Give mysql user ownership
+[ ] Learn CMD
+[ ] Make mariadbd the default container process
+[ ] Run container detached from host terminal
+[ ] Check docker ps
+[ ] Check docker logs
+[ ] Check docker top
+[ ] Check /proc/1/comm
+[ ] Confirm mariadbd is PID 1
+[ ] Understand why no tail -f
+[ ] Understand why no sleep infinity
+[ ] Understand why no process should use &
+
+
+2. DATABASE INITIALIZATION
+
+[ ] Enter MariaDB with docker exec
+[ ] Run SHOW DATABASES
+[ ] Create wordpress database manually
+[ ] Create wpuser manually
+[ ] Grant wpuser permissions
+[ ] Run SHOW GRANTS
+[ ] Inspect mysql.user
+[ ] Understand MariaDB root vs wpuser
+
+
+3. CREDENTIAL SAFETY
+
+[ ] Understand why passwords do not belong in Dockerfile
+[ ] Understand why real passwords do not belong in Git
+[ ] Understand .env concept
+[ ] Understand Docker secrets concept
+[ ] Plan to ignore local secret files
+[ ] Do not commit temporary learning passwords
+
+
+4. PERSISTENCE
+
+[ ] Find /var/lib/mysql
+[ ] Understand why container filesystem alone is insufficient
+[ ] Delete a test container and observe the problem
+[ ] Create mariadb-data named volume
+[ ] Mount it at /var/lib/mysql
+[ ] Understand host volume vs container path
+
+
+5. STARTUP SCRIPT
+
+[ ] Understand why init.sh is now needed
+[ ] Create tools/init.sh
+[ ] Use #!/bin/sh
+[ ] Understand set -eu
+[ ] Prepare /run/mysqld
+[ ] Fix ownership
+[ ] Detect first startup
+[ ] Understand /var/lib/mysql/mysql check
+[ ] Understand idempotence
+[ ] Learn mariadb-install-db
+[ ] Initialize /var/lib/mysql only when needed
+[ ] Understand how DB/user SQL will be automated
+[ ] End startup with exec mariadbd --user=mysql
+
+
+6. IMAGE / ENTRYPOINT
+
+[ ] Remove build-time DB contents from image
+[ ] Learn COPY
+[ ] Copy init.sh into image
+[ ] Make script executable
+[ ] Learn ENTRYPOINT
+[ ] Rebuild image successfully
+
+
+7. PERSISTENCE TEST
+
+[ ] Start MariaDB with named volume
+[ ] Confirm wordpress DB exists automatically
+[ ] Create day2_test table
+[ ] Insert test row
+[ ] Confirm row exists
+[ ] Stop container
+[ ] Delete container
+[ ] Confirm volume still exists
+[ ] Create a new container with same volume
+[ ] Confirm startup skips re-initialization
+[ ] Confirm day2_test row still exists
+
+
+8. DATABASE INSPECTION
+
+[ ] Know command to enter MariaDB
+[ ] Know SHOW DATABASES
+[ ] Know SELECT User, Host FROM mysql.user
+[ ] Know SHOW GRANTS
+[ ] Test wpuser login
+[ ] Explain how WordPress will use wpuser later
+
+
+============================================================
+MINIMUM WIN FOR DAY 2
+============================================================
+
+You are DONE for Day 2 if you can truthfully say:
+
+    "MariaDB starts as the real main process of my container.
+
+     I understand why the container stays alive because mariadbd
+     stays alive.
+
+     My startup logic initializes a fresh MariaDB data directory
+     only when necessary.
+
+     The WordPress database and WordPress database user are created
+     automatically on first startup.
+
+     My script does not use tail -f, sleep infinity,
+     an infinite loop, or a background process to keep the
+     container running.
+
+     The startup script finishes with exec mariadbd.
+
+     MariaDB stores its real data in /var/lib/mysql.
+
+     I created a Docker named volume for that directory.
+
+     I deleted the MariaDB container, created a new one with
+     the same volume, and my database data was still there.
+
+     I understand the difference between MariaDB root and the
+     WordPress application database user.
+
+     I know how to enter MariaDB and inspect the database."
+
+
+============================================================
+IF FIVE HOURS BECOMES THREE HOURS
+============================================================
+
+Do NOT rush everything.
+
+Prioritize these three things:
+
+1.
+
+    mariadbd is really PID 1
+
+2.
+
+    First startup:
+        initialize DB
+        create WordPress DB/user
+
+    Later startup:
+        do not recreate/destroy existing data
+
+3.
+
+    Delete container
+        ↓
+    same named volume
+        ↓
+    create new container
+        ↓
+    data survives
+
+
+If those three things work and you understand them,
+Day 2 is successful.
+
+
+============================================================
+WHAT DAY 3 WILL SOLVE
+============================================================
+
+At the end of Day 2:
+
+    MariaDB works by itself.
+
+The next problem becomes:
+
+    "How does another container — WordPress + PHP-FPM —
+     find MariaDB and talk to it?"
+
+That is when Docker networking becomes useful.
+
+Day 3 will introduce:
+
+    WordPress
+        +
+    PHP-FPM
+        +
+    Docker network
+        +
+    MariaDB connection
