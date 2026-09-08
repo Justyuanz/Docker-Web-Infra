@@ -80,9 +80,9 @@ inception/
 - [ ] Inspect what files/processes MariaDB added
 
 ### 3. Learn one thing about container lifetime
-- [ ] Find the actual MariaDB server process/command
+- [x] Find the actual MariaDB server process/command
 - [ ] Understand why a container exits when its main process exits
-- [ ] Understand why fake keep-alives such as `tail -f` are forbidden in this project
+- [x] Understand why fake keep-alives such as `tail -f` are forbidden in this project
 
 ### Minimum win for today
 - [x] **I personally built a MariaDB image**
