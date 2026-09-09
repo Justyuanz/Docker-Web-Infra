@@ -68,7 +68,7 @@ inception/
 - [x] I check that the final version I use will satisfy the evaluation requirement: **penultimate stable release**
 - [x] I understand what `FROM` does
 - [x] I understand what `RUN` does
-- [ ] I know which package installs MariaDB on my chosen base image
+- [x] I know which package installs MariaDB on my chosen base image
 
 ### 2. Write the first Dockerfile myself
 - [x] Create `mariadb/Dockerfile`
@@ -97,21 +97,21 @@ Do not compensate by copying a finished MariaDB setup from a guide.
 ## Goal: Turn MariaDB into a proper self-initializing, persistent service
 
 ### 1. Make MariaDB run correctly
-- [ ] Make the real MariaDB server run in the foreground
-- [ ] Verify the container remains running because MariaDB is running
-- [ ] Verify there is no fake keep-alive loop
-- [ ] Verify no process is started with `&`
+- [x] Make the real MariaDB server run in the foreground
+- [x] Verify the container remains running because MariaDB is running
+- [x] Verify there is no fake keep-alive loop
+- [x] Verify no process is started with `&`
 
 ### 2. Understand and create startup initialization
 Only create a startup script when I understand why it is needed.
 
-- [ ] Learn what must happen on the **first** MariaDB startup
-- [ ] Create the WordPress database
-- [ ] Create the WordPress database user
-- [ ] Set appropriate permissions
-- [ ] Understand root/database credentials
-- [ ] Make initialization idempotent: restarting must not destroy/recreate everything incorrectly
-- [ ] If using an entrypoint script, ensure it finishes by launching the actual MariaDB foreground process
+- [x] Learn what must happen on the **first** MariaDB startup
+- [x] Create the WordPress database
+- [x] Create the WordPress database user
+- [x] Set appropriate permissions
+- [x] Understand root/database credentials
+- [x] Make initialization idempotent: restarting must not destroy/recreate everything incorrectly
+- [x] If using an entrypoint script, ensure it finishes by launching the actual MariaDB foreground process
 
 ### 3. Credentials safety
 - [ ] Decide how secrets will be supplied in the final project
