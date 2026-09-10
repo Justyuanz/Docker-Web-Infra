@@ -29,5 +29,14 @@ RUN curl -fsSL \
         -o /usr/local/bin/wp && \
     chmod +x /usr/local/bin/wp
 
-COPY conf/php-fpm.conf \
-    /etc/php/8.2/fpm/pool.d/www.conf
+COPY conf/php-fpm.conf /etc/php/8.2/fpm/pool.d/www.conf
+
+COPY tools/init.sh /usr/local/bin/init.sh
+
+RUN chmod +x /usr/local/bin/init.sh
+
+WORKDIR /var/www/html
+
+EXPOSE 9000
+
+ENTRYPOINT ["/usr/local/bin/init.sh"]
