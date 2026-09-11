@@ -49,6 +49,11 @@ if ! wp core is-installed --allow-root 2>/dev/null; then
         --allow-root
 
     echo "Creating normal WordPress user..."
+fi
+
+# Create normal WordPress user only if it does not already exist
+if ! wp user get "$WP_USER" --allow-root >/dev/null 2>&1; then
+    echo "Creating normal WordPress user..."
 
     wp user create "$WP_USER" "$WP_USER_EMAIL" \
         --role=author \
