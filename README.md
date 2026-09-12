@@ -119,6 +119,6 @@ Resources used while studying and building the project:
 
 ## AI usage
 
-AI was used as a study assistant to explain Docker, Docker Compose, Docker networks, Docker volumes, MariaDB initialization, PHP-FPM, NGINX, WordPress setup, and evaluation preparation.
+AI was used as a study assistant to explain Docker, Docker Compose, Docker networks, Docker volumes, MariaDB initialization, PHP-FPM, NGINX, WordPress setup.
 
-The project files were written, tested, debugged, and adapted by the student. AI explanations were used to understand the architecture, command behavior, configuration files, and evaluation requirements.
+The project files were written, tested, debugged, and adapted by the student. AI explanations were used to understand the architecture, command behaviornand configuration files.
