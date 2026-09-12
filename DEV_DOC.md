@@ -22,20 +22,13 @@ Required tools:
 - Docker Compose
 - Make
 
-On the final Linux evaluation machine, the persistent data directories should exist under:
+The data root defaults to a directory below the current user's home:
 
 ```text
-/home/jinzhang/data/
+${HOME}/data/
 ```
 
-Expected directories:
-
-```bash
-mkdir -p /home/jinzhang/data/mariadb
-mkdir -p /home/jinzhang/data/wordpress
-```
-
-The Makefile can create these directories automatically before starting the stack.
+The Makefile creates the MariaDB and WordPress subdirectories automatically. To use another location, run `make DATA_DIR=/absolute/path/to/data`.
 
 ## Environment file
 
@@ -45,10 +38,18 @@ The project uses:
 srcs/.env
 ```
 
-Example variables:
+Create the private environment file from the tracked example:
+
+```bash
+cd srcs
+cp .env.example .env
+chmod u=rw,go= .env
+```
+
+Then replace every `change_me` value. The variables include:
 
 ```env
-LOGIN=jinzhang
+DATA_DIR=${HOME}/data
 
 MYSQL_DATABASE=wordpress
 MYSQL_USER=wpuser
@@ -68,6 +69,8 @@ WP_USER_EMAIL=author1@example.com
 
 `srcs/.env` must not be committed to Git.
 
+The project uses a local `.env` for its single-host configuration. A Docker `secrets/` directory is optional; Docker secrets would be a reasonable production hardening step for a larger deployment. Real credentials must remain outside Git.
+
 Root `.gitignore` should contain:
 
 ```gitignore
@@ -85,7 +88,8 @@ make
 Equivalent Compose command:
 
 ```bash
-docker compose -f srcs/docker-compose.yml up -d --build
+cd srcs
+docker compose up -d --build
 ```
 
 ## Stop
@@ -111,7 +115,8 @@ make logs
 Or:
 
 ```bash
-docker compose -f srcs/docker-compose.yml logs
+cd srcs
+docker compose logs
 ```
 
 ## Service architecture
@@ -204,6 +209,8 @@ Do not use:
 
 The project uses persistent volumes for MariaDB and WordPress.
 
+Because these volumes use directories on the host, their data survives stopping, deleting, and recreating the containers. The data is removed only when the corresponding host directories are deleted.
+
 MariaDB volume:
 
 ```text
@@ -216,11 +223,11 @@ WordPress volume:
 wordpress → /var/www/html
 ```
 
-For final evaluation, `docker volume inspect` should show paths containing:
+With the default data root, `docker volume inspect` should show paths ending in:
 
 ```text
-/home/jinzhang/data/mariadb
-/home/jinzhang/data/wordpress
+data/mariadb
+data/wordpress
 ```
 
 ## Useful checks
@@ -228,7 +235,8 @@ For final evaluation, `docker volume inspect` should show paths containing:
 Check containers:
 
 ```bash
-docker compose -f srcs/docker-compose.yml ps
+cd srcs
+docker compose ps
 ```
 
 Check HTTPS:
@@ -259,19 +267,22 @@ docker volume inspect wordpress
 Check WordPress installation:
 
 ```bash
-docker compose -f srcs/docker-compose.yml exec wordpress wp core is-installed --allow-root
+cd srcs
+docker compose exec wordpress wp core is-installed --allow-root
 ```
 
 Check WordPress users:
 
 ```bash
-docker compose -f srcs/docker-compose.yml exec wordpress wp user list --allow-root
+cd srcs
+docker compose exec wordpress wp user list --allow-root
 ```
 
 Check MariaDB database:
 
 ```bash
-docker compose -f srcs/docker-compose.yml exec mariadb mariadb -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"
+cd srcs
+docker compose exec mariadb sh -c 'mariadb -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"'
 ```
 
 Inside MariaDB:
@@ -285,9 +296,10 @@ exit
 Check real main processes:
 
 ```bash
-docker compose -f srcs/docker-compose.yml exec mariadb cat /proc/1/comm
-docker compose -f srcs/docker-compose.yml exec wordpress cat /proc/1/comm
-docker compose -f srcs/docker-compose.yml exec nginx cat /proc/1/comm
+cd srcs
+docker compose exec mariadb cat /proc/1/comm
+docker compose exec wordpress cat /proc/1/comm
+docker compose exec nginx cat /proc/1/comm
 ```
 
 Expected idea:
@@ -320,7 +332,7 @@ Containers should stay alive because their real services run in the foreground, 
 
 ## Configuration modification practice
 
-During evaluation, the reviewer may ask for a configuration change, such as changing an exposed port.
+To verify that the deployment remains easy to reconfigure, temporarily change an exposed port.
 
 Example practice change:
 
@@ -337,7 +349,7 @@ make
 curl -k https://jinzhang.42.fr:8443
 ```
 
-After testing, restore the expected final configuration:
+After testing, restore the normal configuration:
 
 ```yaml
 ports:

@@ -26,11 +26,42 @@ MariaDB :3306
 
 The WordPress service does not contain NGINX. The NGINX service does not contain WordPress or MariaDB. Each container has one main responsibility.
 
+## Project description and design choices
+
+Docker builds and runs each service from the files under `srcs/requirements/`. Docker Compose describes how those images, containers, volumes, environment variables, and the private network work together. The Dockerfiles install each service, the `conf/` files configure it, and the `tools/` scripts perform first-start initialization.
+
+### Virtual machines vs Docker
+
+A virtual machine runs a complete guest operating system and its own kernel, which provides strong isolation but uses more resources. A Docker container shares the host's kernel and isolates a service as a process, so containers are smaller and start faster. This project uses Docker to separate NGINX, WordPress/PHP-FPM, and MariaDB into independent services.
+
+### Secrets vs environment variables
+
+Environment variables are convenient for non-secret configuration and for passing values into containers. Docker secrets expose confidential values as mounted files and are useful for larger or production deployments. This project keeps its local configuration in `srcs/.env`, which is ignored by Git, while `srcs/.env.example` documents the required keys without containing real credentials.
+
+### Docker network vs host network
+
+The custom `inception` bridge network gives the containers isolated service-to-service communication and DNS names such as `wordpress` and `mariadb`. Host networking would remove that isolation. Only NGINX publishes a host port.
+
+### Docker volumes vs bind mounts
+
+A normal Docker volume is stored in Docker's managed storage. A bind mount uses a specific host directory. This project declares named volumes with the local driver and bind options, combining Compose-managed volume names with a configurable host data location. `DATA_DIR` defaults to `${HOME}/data`.
+
 ## Instructions
 
 Before running the project, make sure the domain is mapped to localhost.
 
-On Linux/macOS, add this line to `/etc/hosts`:
+Create the local environment file and replace every `change_me` value:
+
+```bash
+cd srcs
+cp .env.example .env
+chmod u=rw,go= .env
+cd ..
+```
+
+Do not commit `srcs/.env`. Its default `DATA_DIR=${HOME}/data` stores persistent data below the current user's home directory.
+
+Add this line to the host's `/etc/hosts` file:
 
 ```text
 127.0.0.1 jinzhang.42.fr
@@ -86,6 +117,7 @@ inception/
 ├── DEV_DOC.md
 └── srcs/
     ├── .env
+    ├── .env.example
     ├── docker-compose.yml
     └── requirements/
         ├── mariadb/
@@ -115,10 +147,10 @@ Resources used while studying and building the project:
 - NGINX documentation
 - WordPress documentation
 - WP-CLI documentation
-- 42 Inception subject and evaluation sheet
+- 42 Inception project brief
 
 ## AI usage
 
-AI was used as a study assistant to explain Docker, Docker Compose, Docker networks, Docker volumes, MariaDB initialization, PHP-FPM, NGINX, WordPress setup.
+AI was used as a study assistant to explain Docker, Docker Compose, Docker networks, Docker volumes, MariaDB initialization, PHP-FPM, NGINX, WordPress setup, and testing approaches.
 
-The project files were written, tested, debugged, and adapted by the student. AI explanations were used to understand the architecture, command behaviornand configuration files.
+The project files were written, tested, debugged, and adapted by the student. AI explanations were used to understand the architecture, command behavior, and configuration files.

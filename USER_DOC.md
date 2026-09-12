@@ -15,10 +15,17 @@ The stack contains:
 From the repository root:
 
 ```bash
+cd srcs
+cp .env.example .env
+chmod u=rw,go= .env
+# Edit .env and replace every change_me value.
+cd ..
 make
 ```
 
 This builds and starts all services with Docker Compose.
+
+Only perform the copy the first time. Do not overwrite an existing `srcs/.env` containing your credentials.
 
 ## Stop the stack
 
@@ -41,7 +48,8 @@ make ps
 Or directly:
 
 ```bash
-docker compose -f srcs/docker-compose.yml ps
+cd srcs
+docker compose ps
 ```
 
 Expected services:
@@ -101,6 +109,12 @@ ADMIN
 
 For example, `boss42` is acceptable. `admin`, `administrator`, `Admin-login`, or `admin-123` are not acceptable.
 
+## Managing credentials
+
+Real credentials are stored only in the local `srcs/.env`, which is ignored by Git. `srcs/.env.example` contains the required variable names but no real credentials. Keep `srcs/.env` readable only by your user and never commit or share it.
+
+The initialization scripts use these values when the volumes are first created. Editing `.env` later does not automatically change accounts already stored in WordPress or MariaDB; update those accounts explicitly or recreate the project data only when losing the existing content is acceptable.
+
 ## Normal WordPress user
 
 A normal non-administrator WordPress user is also created from `srcs/.env`:
@@ -136,7 +150,8 @@ curl http://jinzhang.42.fr
 Check WordPress users:
 
 ```bash
-docker compose -f srcs/docker-compose.yml exec wordpress wp user list --allow-root
+cd srcs
+docker compose exec wordpress wp user list --allow-root
 ```
 
 Expected result:

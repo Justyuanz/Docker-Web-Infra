@@ -1,6 +1,8 @@
 COMPOSE = docker compose -f srcs/docker-compose.yml
 
-DATA_DIR = /home/$(USER)/data
+DATA_DIR = $(HOME)/data
+export DATA_DIR
+
 MARIADB_DATA = $(DATA_DIR)/mariadb
 WORDPRESS_DATA = $(DATA_DIR)/wordpress
 
